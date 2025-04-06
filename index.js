@@ -1,7 +1,5 @@
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const cooldowns = new Map();
-const usedCodes = new Set();
-
+const { Client, GatewayIntentBits } = require('discord.js');
+const http = require('http');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -11,15 +9,28 @@ const client = new Client({
   ]
 });
 
-// Kanal ID'lerini buraya girin
+// Yapılandırma Ayarları
 const config = {
-  manifestLog: '1358448420355837952',
-  steamLog: '1358448346108526730',
-  cooldown: 3600000 // 1 saat milisaniye cinsinden
+  cooldown: 3600000, // 1 saat
+  channels: {
+    manifestLog: '1358448420355837952',
+    steamLog: '1358448346108526730'
+  },
+  keepAlivePort: 8080 // Değiştirebilirsiniz
 };
 
+// Keep Alive Sistemi
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {'Content-Type': 'text/plain'});
+  res.end('Bot Aktif!');
+}).listen(config.keepAlivePort);
+
+// Cooldown Sistemi
+const cooldowns = new Map();
+const usedCodes = new Set();
+
 client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag}!`);
+  console.log(`Bot ${client.user.tag} olarak çalışıyor!`);
 });
 
 client.on('messageCreate', async message => {
@@ -28,27 +39,27 @@ client.on('messageCreate', async message => {
   const args = message.content.slice(6).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // Cooldown kontrolü
+  // Cooldown Kontrolü
   if (!cooldowns.has(message.author.id)) {
-    cooldowns.set(message.author.id, new Collection());
+    cooldowns.set(message.author.id, new Map());
   }
 
   const now = Date.now();
-  const timestamps = cooldowns.get(message.author.id);
+  const userCooldowns = cooldowns.get(message.author.id);
   const cooldownAmount = config.cooldown;
 
-  if (timestamps.has(command)) {
-    const expirationTime = timestamps.get(command) + cooldownAmount;
+  if (userCooldowns.has(command)) {
+    const expirationTime = userCooldowns.get(command) + cooldownAmount;
     if (now < expirationTime) {
       const timeLeft = (expirationTime - now) / 1000 / 60;
       return message.reply(`Lütfen ${Math.ceil(timeLeft)} dakika sonra tekrar deneyin.`);
     }
   }
 
-  timestamps.set(command, now);
-  setTimeout(() => timestamps.delete(command), cooldownAmount);
+  userCooldowns.set(command, now);
+  setTimeout(() => userCooldowns.delete(command), cooldownAmount);
 
-  // Komut işlemleri
+  // Komut İşlemleri
   try {
     if (command === 'manifest') {
       await message.author.send('Lütfen Steam AppID\'nizi girin:');
@@ -57,16 +68,16 @@ client.on('messageCreate', async message => {
 
       collector.on('collect', async m => {
         const appId = m.content;
-        const logChannel = client.channels.cache.get(config.manifestLog);
+        const logChannel = client.channels.cache.get(config.channels.manifestLog);
         logChannel.send(`Yeni Manifest Talebi:\nKullanıcı: ${message.author.tag}\nAppID: ${appId}`);
         message.author.send('İşleminiz oluşturuldu. Sonuçlar 1-2 iş günü içinde bildirilecektir.');
       });
-    } 
+    }
     else if (command === 'steam') {
       const generatedCode = generateUniqueCode();
-      const logChannel = client.channels.cache.get(config.steamLog);
+      const logChannel = client.channels.cache.get(config.channels.steamLog);
       logChannel.send(`Yeni Steam Talebi:\nKullanıcı: ${message.author.tag}\nKod: ${generatedCode}`);
-      message.author.send(`İşleminiz alındı! Hesabınız 1-2 gün içinde hazır olacak.\nTalep Kodunuz: ${generatedCode}\nLütfen bu kodla ticket açın.`);
+      message.author.send(`İşleminiz alındı! Hesabınız 1-2 gün içinde hazır olacak.\nTalep Kodunuz: ${generatedCode}`);
     }
   } catch (error) {
     console.error('Hata:', error);
